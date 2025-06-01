@@ -23,6 +23,17 @@ micromamba activate contest-env && streamlit run app.py
 - **Power Dynamics**: Real-time monitoring of resource distribution and control
 - **AI Adaptation**: Phi-4 powered agents respond to evolving rule structures
 - **Flexible Tasks**: Currently coding challenges, easily adaptable to other domains
+- **Constitution Diff Viewer**: Git-style side-by-side comparison of rule changes
+- **Direct Function Calls**: Simple architecture without API overhead
+
+## Architecture
+
+- **Streamlit App** (`app.py`) - Main interface with direct Python function calls
+- **Contest Engine** - Manages game state, problems, and submissions
+- **AI Developers** - Phi-4 powered agents that write code solutions
+- **Principle Evaluator** - AI judge that scores submissions and updates constitution
+- **Bank System** - Tracks monetary rewards and transactions
+- **Sandbox** - Safe code execution environment
 
 ## Scoring
 
@@ -30,6 +41,18 @@ micromamba activate contest-env && streamlit run app.py
 - Compilation error/failing test: -$500
 - Latency penalty: -$5 × seconds
 - PrincipleEvaluator: +$1,000 per evaluation
+
+## Installation
+
+```bash
+pip install -r requirements.txt
+```
+
+## Running
+
+```bash
+streamlit run app.py
+```
 
 ## Interface
 

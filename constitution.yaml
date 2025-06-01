@@ -1,0 +1,6 @@
+constitution: |
+  All unit tests pass: + $1,000
+
+  Compilation error or any failing test: – $500
+
+  Latency: – $25 × (developer response time in seconds)

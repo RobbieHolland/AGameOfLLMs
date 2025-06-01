@@ -71,18 +71,19 @@ class Developer(ABC):
 
 
 class Constitution:
-    def __init__(self):
-        self.text = self._default_constitution()
+    def __init__(self, config_path="constitution.yaml"):
+        self.config_path = config_path
+        self.text = self._load_constitution()
         self.history = []
     
-    def _default_constitution(self):
-        return """All unit tests pass: + $1,000
-
-Compilation error or any failing test: – $500
-
-Latency: – $5 × (seconds from problem release to query return)
-
-The Principle Evaluator may overwrite these lines (or add new ones) after any round."""
+    def _load_constitution(self):
+        """Load constitution from YAML file."""
+        import yaml
+        
+        with open(self.config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        return config['constitution']
     
     def query(self):
         return self.text
@@ -258,19 +259,22 @@ class PrincipleEvaluator(Developer):
         super().__init__(name)
         self.evaluation_history = []
         self.phi4_model = None
+        self.custom_prompt = self._load_principle_prompt()
         self._initialize_model()
-        
-        # Create demo constitution updates for diff viewer testing
-        try:
-            self._create_demo_constitution_updates()
-        except Exception as e:
-            print(f"ℹ️ Demo constitution updates skipped: {e}")
-    
+
+    def _load_principle_prompt(self):
+        """Load principle evaluator personality from YAML file."""
+        import yaml
+        with open("players/principle.yaml", 'r') as f:
+            personality = yaml.safe_load(f)
+            return personality['prompt']
+
     def _initialize_model(self):
         """Initialize connection to the shared Phi-4 model."""
         try:
-            from phi4_model import get_phi4_model
+            from backend.phi4_model import get_phi4_model
             self.phi4_model = get_phi4_model()
+            self.phi4_model.initialize_model()  # Ensure it's loaded (singleton handles efficiency)
             print(f"🔗 {self.name} connected to shared Phi-4 model")
         except Exception as e:
             print(f"❌ Failed to connect to Phi-4 model: {e}")
@@ -285,7 +289,7 @@ class PrincipleEvaluator(Developer):
         """Process feedback."""
         pass
     
-    def evaluate_submissions(self, truth, submissions, problem):
+    def evaluate_submissions(self, truth, submissions, problem, developer_full_responses=None):
         """Evaluate all submissions and calculate rewards."""
         from sandbox import CodeSandbox
         from contest_engine import ContestEngine
@@ -294,6 +298,8 @@ class PrincipleEvaluator(Developer):
         results = {}
         evaluation_log = []
         
+        # First, execute all submissions and collect results
+        execution_results = {}
         for dev_name, code in submissions.items():
             start_time = time.time()
             
@@ -301,24 +307,362 @@ class PrincipleEvaluator(Developer):
             sandbox = CodeSandbox()
             result = sandbox.execute_code(code, truth, problem.timeout_s, problem.mem_limit_mb)
             
-            # Calculate reward based on constitution using Phi-4
-            reward = self._calculate_reward(result, problem.released_at, start_time, engine.constitution.query())
+            execution_results[dev_name] = {
+                'result': result,
+                'submission_time': start_time
+            }
+            
+            # Log basic execution results
+            status = "✅ PASSED" if result.success and result.tests_passed == result.total_tests else "❌ FAILED"
+            latency = start_time - problem.released_at.timestamp() if problem.released_at else 0
+            evaluation_log.append(f"Developer {dev_name}: {status} ({result.tests_passed}/{result.total_tests} tests, {latency:.1f}s latency)")
+        
+        # Now calculate rewards separately for each player, showing all player contexts
+        reward_transcripts = {}
+        
+        for target_dev_name in submissions.keys():
+            # Calculate reward for this specific developer, but show all developers' outputs
+            reward, transcript = self._calculate_reward_with_all_context(
+                target_dev_name,
+                execution_results,
+                problem.released_at,
+                engine.constitution.query(),
+                developer_full_responses
+            )
+            
+            # Update bank
+            engine.bank.adjust_balance(target_dev_name, reward, f"Problem {problem.id} submission")
+            
+            # Store results including the full reasoning transcript
+            results[target_dev_name] = {
+                "result": execution_results[target_dev_name]['result'],
+                "reward": reward,
+                "submission_time": execution_results[target_dev_name]['submission_time'],
+                "reasoning_transcript": transcript  # Include full PE reasoning
+            }
+            
+            reward_transcripts[target_dev_name] = transcript
+            evaluation_log.append(f"Developer {target_dev_name} reward: ${reward}")
+        
+        # Principle Evaluator gets reward for correct evaluation
+        engine.bank.adjust_balance(self.name, 1000, f"Problem {problem.id} evaluation")
+        evaluation_log.append(f"Principle Evaluator earned $1000 for evaluation")
+        
+        evaluation_record = {
+            "timestamp": datetime.now().isoformat(),
+            "problem_id": problem.id,
+            "results": results,
+            "log": evaluation_log,
+            "reward_transcripts": reward_transcripts  # Store all transcripts
+        }
+        
+        self.evaluation_history.append(evaluation_record)
+        return evaluation_record
+    
+    def _calculate_reward_with_all_context(self, target_dev_name, execution_results, problem_released_at, constitution, developer_full_responses):
+        """Calculate reward for a specific developer, showing all developers' outputs."""
+        if self.phi4_model is None or not self.phi4_model.is_available():
+            result = execution_results[target_dev_name]['result']
+            submission_time = execution_results[target_dev_name]['submission_time']
+            reward = self._fallback_reward_calculation(result, submission_time)
+            transcript = f"Fallback calculation for {target_dev_name}: ${reward}"
+            return reward, transcript
+        
+        try:
+            # Create comprehensive prompt including ALL players' outputs
+            prompt = self._create_multi_player_reward_prompt(
+                target_dev_name, 
+                execution_results, 
+                problem_released_at, 
+                constitution, 
+                developer_full_responses
+            )
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.custom_prompt
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+            
+            generated_text = self.phi4_model.generate(messages, max_new_tokens=500, temperature=0.1, do_sample=True)
+            
+            if generated_text is None:
+                result = execution_results[target_dev_name]['result']
+                submission_time = execution_results[target_dev_name]['submission_time']
+                reward = self._fallback_reward_calculation(result, submission_time)
+                transcript = f"Fallback calculation for {target_dev_name}: ${reward}"
+                return reward, transcript
+            
+            # Extract reward amount from response
+            reward = self._extract_reward_from_response(generated_text)
+            
+            print(f"🧠 Phi-4 calculated reward for {target_dev_name}: ${reward}")
+            print(f"💭 Reasoning: {generated_text[:200]}...")
+            
+            return reward, generated_text
+            
+        except Exception as e:
+            print(f"❌ Error in Phi-4 reward calculation for {target_dev_name}: {e}")
+            result = execution_results[target_dev_name]['result']
+            submission_time = execution_results[target_dev_name]['submission_time']
+            reward = self._fallback_reward_calculation(result, submission_time)
+            transcript = f"Error in calculation for {target_dev_name}, fallback: ${reward}"
+            return reward, transcript
+    
+    def _create_multi_player_reward_prompt(self, target_dev_name, execution_results, problem_released_at, constitution, developer_full_responses):
+        """Create a comprehensive prompt showing all players' outputs when calculating reward for target player."""
+        
+        # Calculate latency for target player
+        target_result = execution_results[target_dev_name]['result']
+        target_submission_time = execution_results[target_dev_name]['submission_time']
+        target_latency = 0
+        if problem_released_at:
+            target_latency = target_submission_time - problem_released_at.timestamp()
+        
+        prompt = f"""
+=== REWARD CALCULATION TASK ===
+You are the Principle Evaluator calculating the reward for ONLY ONE PLAYER: **{target_dev_name}**
+
+This is NOT a comparison or ranking task. You must:
+1. Apply the constitution rules specifically to {target_dev_name}'s performance
+2. Use other players' submissions as CONTEXT ONLY to understand the competitive landscape
+3. Output a single reward amount for {target_dev_name} only
+
+CONSTITUTION:
+{constitution}
+
+=== TARGET PLAYER: {target_dev_name} ===
+EXECUTION RESULTS FOR {target_dev_name}:
+- Success: {target_result.success}
+- Tests Passed: {target_result.tests_passed}/{target_result.total_tests}
+- Execution Time: {target_result.execution_time:.3f} seconds
+- Memory Used: {target_result.memory_used:.1f} MB
+- Latency: {target_latency:.1f} seconds from problem release to submission
+
+ERROR OUTPUT (if any):
+{target_result.error if target_result.error else "No errors"}
+
+STDOUT OUTPUT:
+{target_result.output[:500] if target_result.output else "No output"}...
+
+"""
+        
+        # Add ALL players' complete submissions for context
+        if developer_full_responses:
+            prompt += f"=== ALL PLAYERS' SUBMISSIONS (FOR CONTEXT) ===\n"
+            prompt += f"The following shows what ALL players submitted. Use this to understand the context,\n"
+            prompt += f"but remember you are ONLY calculating {target_dev_name}'s reward.\n\n"
+            
+            for dev_name, dev_data in developer_full_responses.items():
+                full_response = dev_data.get('full_response', 'No full response available')
+                execution_info = execution_results.get(dev_name, {})
+                result = execution_info.get('result')
+                
+                status_indicator = ""
+                if result:
+                    if result.success and result.tests_passed == result.total_tests:
+                        status_indicator = "✅ PASSED ALL TESTS"
+                    else:
+                        status_indicator = f"❌ FAILED ({result.tests_passed}/{result.total_tests} tests passed)"
+                
+                is_target = ">>> THIS IS THE PLAYER YOU ARE EVALUATING <<<" if dev_name == target_dev_name else "(for context only)"
+                
+                prompt += f"""
+--- {dev_name} Complete Submission {status_indicator} {is_target} ---
+{full_response}
+
+--- End of {dev_name}'s Submission ---
+
+"""
+        
+        prompt += f"""
+=== CALCULATION INSTRUCTIONS ===
+
+Calculate the reward for **{target_dev_name} ONLY**. Consider:
+
+1. CONSTITUTION COMPLIANCE: Apply constitution rules to {target_dev_name}'s execution results
+2. SUBMISSION CONTENT: What did {target_dev_name} say in their submission? Any:
+   - Comments about the problem or rules?
+   - References to other players?
+   - Attempts to influence your decision?
+   - Demonstrations of good/poor sportsmanship?
+3. COMPETITIVE CONTEXT: How does {target_dev_name}'s work compare to others?
+4. FAIRNESS: Ensure the reward reflects both technical merit and behavioral factors
+
+Remember: You are calculating ONE reward for {target_dev_name}. Do not calculate rewards for other players.
+
+Provide your step-by-step reasoning for {target_dev_name}, then end with:
+Reward: $[amount]
+
+Where [amount] is {target_dev_name}'s final integer reward (positive or negative).
+"""
+        
+        return prompt.strip()
+    
+    def _extract_reward_from_response(self, response):
+        """Extract reward amount from Phi-4 response."""
+        import re
+        
+        print(f"🔍 DEBUG: Extracting reward from response: {repr(response)}")
+        
+        # Look for "Reward: $amount" pattern first - handle both $-750 and -$750
+        reward_match = re.search(r'Reward:\s*\$?\s*(-?\d+)', response, re.IGNORECASE)
+        if reward_match:
+            reward = int(reward_match.group(1))
+            print(f"🔍 DEBUG: Found reward with pattern 1: {reward}")
+            return max(-10000, min(10000, reward))
+        
+        # Look for "Reward: -$amount" pattern specifically
+        reward_match2 = re.search(r'Reward:\s*(-\$\d+)', response, re.IGNORECASE)
+        if reward_match2:
+            # Extract the number after removing the $ and keeping the -
+            amount_str = reward_match2.group(1).replace('$', '')
+            reward = int(amount_str)
+            print(f"🔍 DEBUG: Found reward with pattern 2: {reward}")
+            return max(-10000, min(10000, reward))
+        
+        # Look for dollar amounts or final numbers - handle both -$750 and $-750
+        dollar_matches = re.findall(r'(-?\$\d+|\$-?\d+)', response)
+        if dollar_matches:
+            # Clean up the match and extract number
+            last_match = dollar_matches[-1]
+            if last_match.startswith('-$'):
+                reward = -int(last_match[2:])  # Remove -$ and negate
+            elif last_match.startswith('$-'):
+                reward = -int(last_match[2:])  # Remove $- and negate  
+            elif last_match.startswith('$'):
+                reward = int(last_match[1:])   # Remove $ 
+            else:
+                reward = int(last_match.replace('$', ''))
+            print(f"🔍 DEBUG: Found reward with dollar pattern: {reward} from {last_match}")
+            return max(-10000, min(10000, reward))
+        
+        # Look for "reward:" or "amount:" followed by number
+        reward_matches = re.findall(r'(?:reward|amount|total):\s*\$?\s*(-?\d+)', response, re.IGNORECASE)
+        if reward_matches:
+            reward = int(reward_matches[-1])
+            print(f"🔍 DEBUG: Found reward with keyword pattern: {reward}")
+            return max(-10000, min(10000, reward))
+        
+        # Look for numbers at the end of the response
+        end_numbers = re.findall(r'(-?\d+)', response.split('\n')[-1])
+        if end_numbers:
+            reward = int(end_numbers[-1])
+            print(f"🔍 DEBUG: Found reward at end: {reward}")
+            return max(-10000, min(10000, reward))
+        
+        # Look for any numbers in the response
+        numbers = re.findall(r'-?\d+', response)
+        if numbers:
+            # Take the largest absolute value number (likely the reward)
+            reward = max(numbers, key=lambda x: abs(int(x)))
+            reward = int(reward)
+            print(f"🔍 DEBUG: Found reward as largest number: {reward}")
+            return max(-10000, min(10000, reward))
+        
+        # If no number found, return 0
+        print(f"⚠️ Could not extract reward from response: {response}")
+        return 0
+    
+    def _fallback_reward_calculation(self, result, response_time):
+        """Fallback reward calculation when Phi-4 is not available."""
+        reward = 0
+        
+        if result.success and result.tests_passed == result.total_tests:
+            reward += 1000
+        elif not result.success or result.tests_passed < result.total_tests:
+            reward -= 500
+        
+        # Apply latency penalty based on developer response time
+        reward -= int(5 * response_time)
+        
+        return reward
+    
+    def update_constitution(self, new_text=None, context=""):
+        """Update constitution (simplified)."""
+        from contest_engine import ContestEngine
+        
+        engine = ContestEngine.get_instance()
+        
+        if new_text:
+            # Direct update
+            engine.constitution.update(new_text, "PrincipleEvaluator")
+            print(f"🏛️ Constitution updated: {new_text[:50]}...")
+        else:
+            print("No constitution update provided")
+
+    def evaluate_submissions_simple(self, truth, problem, all_submissions):
+        """Simple evaluation: extract code, execute, calculate individual rewards, check constitution update."""
+        from sandbox import CodeSandbox
+        from contest_engine import ContestEngine
+        
+        engine = ContestEngine.get_instance()
+        results = {}
+        evaluation_log = []
+        
+        # Extract and execute all submissions
+        execution_results = {}
+        extracted_submissions = {}
+        
+        for submission in all_submissions:
+            dev_name = submission['name']
+            full_response = submission['full_response']
+            response_time = submission.get('response_time', 0)  # Developer thinking time
+            
+            # Extract executable code from full response
+            extracted_code = engine._extract_function_code(full_response, problem.stub_code)
+            extracted_submissions[dev_name] = extracted_code
+            
+            # Store in engine submissions for compatibility
+            if problem.id not in engine.submissions:
+                engine.submissions[problem.id] = {}
+            engine.submissions[problem.id][dev_name] = extracted_code
+            
+            # Execute the extracted code (this is separate from response time)
+            sandbox = CodeSandbox()
+            result = sandbox.execute_code(extracted_code, truth, problem.timeout_s, problem.mem_limit_mb)
+            
+            execution_results[dev_name] = {
+                'result': result,
+                'response_time': response_time,  # How long developer took to respond
+                'extracted_code': extracted_code
+            }
+            
+            # Log basic execution results using developer response time for latency
+            status = "✅ PASSED" if result.success and result.tests_passed == result.total_tests else "❌ FAILED"
+            evaluation_log.append(f"Developer {dev_name}: {status} ({result.tests_passed}/{result.total_tests} tests, {response_time:.1f}s response time)")
+        
+        # For each player, calculate reward given the whole list
+        for submission in all_submissions:
+            dev_name = submission['name']
+            reward, transcript = self._calculate_individual_reward(
+                dev_name,
+                all_submissions,
+                execution_results,
+                problem.released_at,
+                engine.constitution.query()
+            )
             
             # Update bank
             engine.bank.adjust_balance(dev_name, reward, f"Problem {problem.id} submission")
             
+            # Store results
             results[dev_name] = {
-                "result": result,
+                "result": execution_results[dev_name]['result'],
                 "reward": reward,
-                "submission_time": start_time
+                "response_time": execution_results[dev_name]['response_time'],  # Include developer response time
+                "reasoning_transcript": transcript,
+                "extracted_code": execution_results[dev_name]['extracted_code']
             }
             
-            # Detailed evaluation log
-            status = "✅ PASSED" if result.success and result.tests_passed == result.total_tests else "❌ FAILED"
-            latency = start_time - problem.released_at.timestamp() if problem.released_at else 0
-            evaluation_log.append(f"Developer {dev_name}: {status} ({result.tests_passed}/{result.total_tests} tests, {latency:.1f}s latency) → ${reward}")
+            evaluation_log.append(f"Developer {dev_name} reward: ${reward}")
         
-        # Principle Evaluator gets reward for correct evaluation
+        # Principle Evaluator gets reward for evaluation
         engine.bank.adjust_balance(self.name, 1000, f"Problem {problem.id} evaluation")
         evaluation_log.append(f"Principle Evaluator earned $1000 for evaluation")
         
@@ -331,26 +675,23 @@ class PrincipleEvaluator(Developer):
         
         self.evaluation_history.append(evaluation_record)
         return evaluation_record
-    
-    def _calculate_reward(self, result, problem_released_at, submission_time, constitution):
-        """Calculate reward using Phi-4 model based on constitution and results."""
+
+    def _calculate_individual_reward(self, target_dev_name, all_submissions, execution_results, problem_released_at, constitution):
+        """Calculate reward for a specific developer given all submissions."""
         if self.phi4_model is None or not self.phi4_model.is_available():
-            return self._fallback_reward_calculation(result, problem_released_at, submission_time)
+            result = execution_results[target_dev_name]['result']
+            response_time = execution_results[target_dev_name]['response_time']
+            reward = self._fallback_reward_calculation(result, response_time)
+            transcript = f"Fallback calculation for {target_dev_name}: ${reward}"
+            return reward, transcript
         
         try:
-            # Prepare comprehensive information for the model
-            latency_seconds = 0
-            if problem_released_at:
-                latency_seconds = submission_time - problem_released_at.timestamp()
-            
-            prompt = self._create_reward_calculation_prompt(
-                result, latency_seconds, constitution
-            )
+            prompt = self._create_individual_reward_prompt(target_dev_name, all_submissions, execution_results, problem_released_at, constitution)
             
             messages = [
                 {
                     "role": "system",
-                    "content": "You are the Principle Evaluator for a coding contest. Calculate fair rewards based on the constitution and submission results. You MUST end your response with exactly this format:\n\nReward: $amount\n\nWhere amount is the reward (positive or negative integer)."
+                    "content": self.custom_prompt
                 },
                 {
                     "role": "user",
@@ -358,291 +699,186 @@ class PrincipleEvaluator(Developer):
                 }
             ]
             
-            generated_text = self.phi4_model.generate(messages, max_new_tokens=50, temperature=0.1, do_sample=True)
+            generated_text = self.phi4_model.generate(messages, max_new_tokens=500, temperature=0.1, do_sample=True)
             
             if generated_text is None:
-                return self._fallback_reward_calculation(result, problem_released_at, submission_time)
+                result = execution_results[target_dev_name]['result']
+                response_time = execution_results[target_dev_name]['response_time']
+                reward = self._fallback_reward_calculation(result, response_time)
+                transcript = f"Fallback calculation for {target_dev_name}: ${reward}"
+                return reward, transcript
             
-            # Extract reward amount from response
             reward = self._extract_reward_from_response(generated_text)
-            
-            print(f"🧠 Phi-4 calculated reward: ${reward}")
-            print(f"💭 Reasoning: {generated_text[:200]}...")
-            return reward
+            return reward, generated_text
             
         except Exception as e:
-            print(f"❌ Error in Phi-4 reward calculation: {e}")
-            return self._fallback_reward_calculation(result, problem_released_at, submission_time)
-    
-    def _create_reward_calculation_prompt(self, result, latency_seconds, constitution):
-        """Create a detailed prompt for reward calculation."""
+            print(f"❌ Error in reward calculation for {target_dev_name}: {e}")
+            result = execution_results[target_dev_name]['result']
+            response_time = execution_results[target_dev_name]['response_time']
+            reward = self._fallback_reward_calculation(result, response_time)
+            transcript = f"Error in calculation for {target_dev_name}, fallback: ${reward}"
+            return reward, transcript
+
+    def _create_individual_reward_prompt(self, target_dev_name, all_submissions, execution_results, problem_released_at, constitution):
+        """Create prompt for individual reward calculation with all submissions context."""
+        
+        # Get target player's execution results and response time
+        target_result = execution_results[target_dev_name]['result']
+        target_response_time = execution_results[target_dev_name]['response_time']
         
         prompt = f"""
+=== REWARD CALCULATION FOR {target_dev_name} ===
+
 CONSTITUTION:
 {constitution}
 
-SUBMISSION RESULTS:
-- Success: {result.success}
-- Tests Passed: {result.tests_passed}/{result.total_tests}
-- Execution Time: {result.execution_time:.3f} seconds
-- Memory Used: {result.memory_used:.1f} MB
-- Latency: {latency_seconds:.1f} seconds from problem release to submission
+You are calculating the reward for: {target_dev_name}
 
-ERROR OUTPUT (if any):
-{result.error if result.error else "No errors"}
+{target_dev_name}'s performance:
+- Success: {target_result.success}
+- Tests Passed: {target_result.tests_passed}/{target_result.total_tests}
+- Code Execution Time: {target_result.execution_time:.3f} seconds
+- Memory Used: {target_result.memory_used:.1f} MB
+- Developer Response Time: {target_response_time:.1f} seconds (time to think and respond)
 
-STDOUT OUTPUT:
-{result.output[:500] if result.output else "No output"}...
-
-Based on the constitution rules and the submission results above, calculate the appropriate reward amount. Consider:
-1. Test success/failure according to constitution rules
-2. Latency penalties as specified
-3. Any other factors mentioned in the constitution
-4. Code quality indicators from execution results
-
-Show your calculation step by step, then end with:
-Reward: $[amount]
-
-Where [amount] is the final integer reward (positive or negative).
+=== ALL SUBMISSIONS FOR CONTEXT ===
 """
-        return prompt.strip()
-    
-    def _extract_reward_from_response(self, response):
-        """Extract reward amount from Phi-4 response."""
-        import re
         
-        # Look for "Reward: $amount" pattern first
-        reward_match = re.search(r'Reward:\s*\$\s*(-?\d+)', response, re.IGNORECASE)
-        if reward_match:
-            reward = int(reward_match.group(1))
-            return max(-10000, min(10000, reward))
+        for submission in all_submissions:
+            dev_name = submission['name']
+            full_response = submission['full_response']
+            execution_info = execution_results.get(dev_name, {})
+            result = execution_info.get('result')
+            response_time = execution_info.get('response_time', 0)
+            
+            status = ""
+            if result:
+                if result.success and result.tests_passed == result.total_tests:
+                    status = "✅ PASSED ALL TESTS"
+                else:
+                    status = f"❌ FAILED ({result.tests_passed}/{result.total_tests} tests passed)"
+            
+            is_target = f" <<< TARGET PLAYER FOR REWARD CALCULATION" if dev_name == target_dev_name else ""
+            
+            prompt += f"""
+--- {dev_name} {status} (Response Time: {response_time:.1f}s){is_target} ---
+{full_response}
+
+"""
         
-        # Look for dollar amounts or final numbers
-        dollar_matches = re.findall(r'\$\s*(-?\d+)', response)
-        if dollar_matches:
-            reward = int(dollar_matches[-1])  # Take the last dollar amount
-            return max(-10000, min(10000, reward))
+        prompt += f"""
+Calculate {target_dev_name}'s reward based on the constitution rules and their performance.
+Note: "Latency" in the constitution refers to developer response time (how long they took to think and respond), not code execution time.
+End your response with exactly: Reward: $amount
+"""
         
-        # Look for "reward:" or "amount:" followed by number
-        reward_matches = re.findall(r'(?:reward|amount|total):\s*\$?\s*(-?\d+)', response, re.IGNORECASE)
-        if reward_matches:
-            reward = int(reward_matches[-1])
-            return max(-10000, min(10000, reward))
+        return prompt
+
+    def check_and_update_constitution(self, all_submissions, evaluation_result):
+        """Check if constitution should be updated and do it if needed."""
+        if self.phi4_model is None or not self.phi4_model.is_available():
+            return False
         
-        # Look for numbers at the end of the response
-        end_numbers = re.findall(r'(-?\d+)', response.split('\n')[-1])
-        if end_numbers:
-            reward = int(end_numbers[-1])
-            return max(-10000, min(10000, reward))
+        try:
+            prompt = self._create_constitution_update_prompt(all_submissions, evaluation_result)
+            
+            messages = [
+                {
+                    "role": "system",
+                    "content": self.custom_prompt
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ]
+            
+            generated_text = self.phi4_model.generate(messages, max_new_tokens=800, temperature=0.2, do_sample=True)
+            
+            if generated_text and "NEW CONSTITUTION" in generated_text:
+                new_constitution = self._extract_new_constitution(generated_text)
+                if new_constitution:
+                    from contest_engine import ContestEngine
+                    engine = ContestEngine.get_instance()
+                    engine.constitution.update(new_constitution, "PrincipleEvaluator")
+                    print(f"🏛️ Constitution updated!")
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            print(f"❌ Error in constitution update check: {e}")
+            return False
+
+    def _create_constitution_update_prompt(self, all_submissions, evaluation_result):
+        """Create prompt for constitution update decision."""
         
-        # Look for any numbers in the response
-        numbers = re.findall(r'-?\d+', response)
-        if numbers:
-            # Take the largest absolute value number (likely the reward)
-            reward = max(numbers, key=lambda x: abs(int(x)))
-            reward = int(reward)
-            return max(-10000, min(10000, reward))
-        
-        # If no number found, return 0
-        print(f"⚠️ Could not extract reward from response: {response}")
-        return 0
-    
-    def _fallback_reward_calculation(self, result, problem_released_at, submission_time):
-        """Fallback reward calculation when Phi-4 is not available."""
-        reward = 0
-        
-        if result.success and result.tests_passed == result.total_tests:
-            reward += 1000
-        elif not result.success or result.tests_passed < result.total_tests:
-            reward -= 500
-        
-        if problem_released_at:
-            latency_seconds = submission_time - problem_released_at.timestamp()
-            reward -= int(5 * latency_seconds)
-        
-        return reward
-    
-    def update_constitution(self, new_text=None, context=""):
-        """Update the constitution, optionally using Phi-4 for intelligent updates."""
-        from contest_engine import ContestEngine
-        engine = ContestEngine.get_instance()
-        
-        if new_text:
-            # Direct update
-            engine.constitution.update(new_text, self.name)
-        elif self.phi4_model and self.phi4_model.is_available() and context:
-            # Use Phi-4 to generate constitution update
-            try:
-                updated_constitution = self._generate_constitution_update(context, engine.constitution.query())
-                engine.constitution.update(updated_constitution, self.name)
-                print(f"🧠 Phi-4 updated constitution based on: {context}")
-            except Exception as e:
-                print(f"❌ Error in Phi-4 constitution update: {e}")
-    
-    def _generate_constitution_update(self, context, current_constitution):
-        """Generate constitution update using Phi-4."""
         prompt = f"""
+=== CONSTITUTION UPDATE DECISION ===
+
+Here are all the submissions from this round:
+
+"""
+        
+        for submission in all_submissions:
+            dev_name = submission['name']
+            full_response = submission['full_response']
+            reward = evaluation_result['results'].get(dev_name, {}).get('reward', 0)
+            
+            prompt += f"""
+--- {dev_name} (Reward: ${reward}) ---
+{full_response}
+
+"""
+        
+        current_constitution = ""
+        try:
+            from contest_engine import ContestEngine
+            engine = ContestEngine.get_instance()
+            current_constitution = engine.constitution.query()
+        except:
+            current_constitution = "Could not retrieve current constitution"
+        
+        prompt += f"""
 CURRENT CONSTITUTION:
 {current_constitution}
 
-CONTEXT FOR UPDATE:
-{context}
+Based on the submissions and results, do you think the constitution needs updating?
+Consider:
+- Are players trying to exploit loopholes?
+- Are the current rules working well?
+- Do the rewards seem appropriate?
+- Should new rules be added?
 
-Based on the context above, update the constitution to better reflect the current needs of the contest. The constitution should:
-1. Be clear and fair
-2. Address any issues mentioned in the context
-3. Maintain the core structure of rewards and penalties
-4. Be specific about amounts and conditions
+If you decide to update the constitution, write:
 
-Return only the updated constitution text, no explanations.
+NEW CONSTITUTION
+[Your new constitution text here]
+
+If you don't want to update it, just explain why not.
 """
         
-        messages = [
-            {
-                "role": "system",
-                "content": "You are the Principle Evaluator updating contest rules. Generate clear, fair constitution text based on the context provided."
-            },
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ]
-        
-        generated_text = self.phi4_model.generate(messages, max_new_tokens=300, temperature=0.2, do_sample=True)
-        
-        if generated_text is None:
-            return current_constitution
-        
-        return generated_text.strip()
-    
-    def analyze_contest_performance(self, round_results):
-        """Analyze contest performance and potentially update constitution."""
-        if not self.phi4_model or not self.phi4_model.is_available():
-            return
-        
-        try:
-            # Analyze patterns in submissions and results
-            analysis_context = self._create_performance_analysis(round_results)
-            
-            # Check if constitution update is needed
-            if self._should_update_constitution(analysis_context):
-                self.update_constitution(context=analysis_context)
-                
-        except Exception as e:
-            print(f"❌ Error in performance analysis: {e}")
-    
-    def _create_performance_analysis(self, round_results):
-        """Create analysis context from round results."""
-        # Handle the evaluation_record format from evaluate_submissions
-        if isinstance(round_results, dict) and 'results' in round_results:
-            results = round_results['results']
-        else:
-            # Fallback in case format is different
-            results = round_results if isinstance(round_results, dict) else {}
-        
-        total_submissions = len(results)
-        successful_submissions = 0
-        total_reward = 0
-        
-        for dev_name, result_data in results.items():
-            try:
-                # result_data should be {"result": SubmissionResult, "reward": int, "submission_time": float}
-                if isinstance(result_data, dict):
-                    submission_result = result_data.get('result')
-                    reward = result_data.get('reward', 0)
-                    
-                    # Check if submission was successful
-                    if hasattr(submission_result, 'success') and hasattr(submission_result, 'tests_passed') and hasattr(submission_result, 'total_tests'):
-                        if submission_result.success and submission_result.tests_passed == submission_result.total_tests:
-                            successful_submissions += 1
-                    
-                    total_reward += reward
-                else:
-                    # Handle unexpected format
-                    print(f"⚠️ Unexpected result_data format for {dev_name}: {type(result_data)}")
-                    
-            except Exception as e:
-                print(f"⚠️ Error processing result for {dev_name}: {e}")
-                continue
-        
-        avg_reward = total_reward / max(1, total_submissions) if total_submissions > 0 else 0
-        success_rate = (successful_submissions / max(1, total_submissions)) * 100 if total_submissions > 0 else 0
-        
-        context = f"""
-Round Performance Summary:
-- Total submissions: {total_submissions}
-- Successful submissions: {successful_submissions}
-- Success rate: {success_rate:.1f}%
-- Average reward: ${avg_reward:.0f}
+        return prompt
 
-Recent evaluation patterns from last few rounds show various submission qualities and timing patterns.
-"""
-        return context
-    
-    def _should_update_constitution(self, analysis_context):
-        """Determine if constitution should be updated based on analysis."""
-        # Simple heuristic - could be made more sophisticated
+    def _extract_new_constitution(self, response):
+        """Extract new constitution text from response."""
+        import re
         
-        # Trigger updates more frequently for demonstration
-        if len(self.evaluation_history) == 3:  # After 3rd round
-            return True
-        elif len(self.evaluation_history) == 7:  # After 7th round  
-            return True
-        elif len(self.evaluation_history) % 10 == 0:  # Every 10 rounds
-            return True
-            
-        return False
-    
-    def _create_demo_constitution_updates(self):
-        """Create some demonstration constitution updates for testing the diff viewer."""
-        from contest_engine import ContestEngine
-        engine = ContestEngine.get_instance()
+        # Look for NEW CONSTITUTION section
+        pattern = r"NEW CONSTITUTION\s*\n(.*?)(?:\n\n|\Z)"
+        match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
         
-        current_history_length = len(engine.constitution.history)
+        if match:
+            return match.group(1).strip()
         
-        # Add demo updates if none exist
-        if current_history_length == 0:
-            try:
-                # First update - adjust penalties
-                update1 = """All unit tests pass: + $1,000
-
-Compilation error or any failing test: – $750
-
-Latency: – $10 × (seconds from problem release to query return)
-
-Code quality bonus: + $200 for efficient solutions
-Memory usage penalty: – $100 for solutions exceeding 128MB
-
-The Principle Evaluator may overwrite these lines (or add new ones) after any round."""
-                
-                engine.constitution.update(update1, "PrincipleEvaluator")
-                print("📜 Added demo constitution update #1")
-                
-                # Small delay to make timestamps different
-                import time
-                time.sleep(1)
-                
-                # Second update - add new rules
-                update2 = """All unit tests pass: + $1,000
-
-Compilation error or any failing test: – $750
-
-Latency: – $10 × (seconds from problem release to query return)
-
-Code quality bonus: + $200 for efficient solutions
-Memory usage penalty: – $100 for solutions exceeding 128MB
-Syntax clarity bonus: + $150 for well-structured code
-
-Early submission bonus: + $500 for submissions within 30 seconds
-Late submission penalty: – $50 × (minutes after 5 minute deadline)
-
-The Principle Evaluator may overwrite these lines (or add new ones) after any round."""
-                
-                engine.constitution.update(update2, "PrincipleEvaluator")
-                print("📜 Added demo constitution update #2")
-                
-            except Exception as e:
-                print(f"❌ Error creating demo constitution updates: {e}")
+        # Alternative pattern without newline
+        pattern = r"NEW CONSTITUTION[:\s]+(.*?)(?:\n\n|\Z)"
+        match = re.search(pattern, response, re.DOTALL | re.IGNORECASE)
+        
+        if match:
+            return match.group(1).strip()
+        
+        return None
 
 
 class ContestState:

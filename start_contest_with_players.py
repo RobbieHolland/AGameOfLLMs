@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 
 from backend.contest_engine import ContestEngine
-from developers.starter_developer import Phi4Developer
+from backend.models import CodingProblem
+from agents.developer import Phi4Developer
 
 def main():
     """Start contest with 2 Phi-4 developers and PrincipleEvaluator."""

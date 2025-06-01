@@ -6,11 +6,12 @@ from datetime import datetime
 import sys
 import os
 import difflib
+import yaml
 
 # Add backend to path so we can import directly
 sys.path.append('backend')
 from contest_engine import ContestEngine
-from developers.starter_developer import Phi4Developer
+from agents.developer import Phi4Developer
 
 # Page configuration
 st.set_page_config(
@@ -26,6 +27,12 @@ st.markdown("""
     /* Basic dark background */
     .stApp {
         background-color: #1e1e1e;
+        color: #ffffff;
+    }
+    
+    /* Sidebar */
+    section[data-testid="stSidebar"] {
+        background-color: #262730;
     }
     
     /* Custom component cards */
@@ -35,6 +42,7 @@ st.markdown("""
         border-radius: 0.5rem;
         border-left: 4px solid #4fc3f7;
         margin-bottom: 1rem;
+        color: #ffffff;
     }
     
     .metric-card h4 {
@@ -44,47 +52,31 @@ st.markdown("""
     
     .metric-card h2 {
         margin: 0;
-    }
-    
-    .winner-card {
-        background-color: #1b5e20;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #4caf50;
-        margin-bottom: 1rem;
+        color: #ffffff;
     }
     
     .problem-card {
-        background-color: #1e1e1e !important;
+        background-color: #2d2d2d;
         padding: 1rem;
         border-radius: 0.5rem;
         border-left: 4px solid #ffb74d;
         border: 1px solid #404040;
-        color: #ffffff !important;
+        color: #ffffff;
         margin-bottom: 1rem;
     }
     
     .problem-card h4 {
-        color: #ffb74d !important;
+        color: #ffb74d;
         margin-bottom: 0.5rem;
     }
     
     .problem-card p {
-        color: #ffffff !important;
+        color: #ffffff;
         margin: 0.5rem 0;
     }
     
-    .problem-card pre {
-        background-color: #0e1117 !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-        padding: 1rem;
-        border-radius: 0.25rem;
-        overflow-x: auto;
-    }
-    
     .evaluation-log {
-        background-color: #1e1e1e !important;
+        background-color: #2d2d2d;
         padding: 1rem;
         border-radius: 0.5rem;
         border: 1px solid #404040;
@@ -92,769 +84,95 @@ st.markdown("""
         font-size: 0.9rem;
         max-height: 400px;
         overflow-y: auto;
-        color: #ffffff !important;
+        color: #ffffff;
         margin-bottom: 1rem;
     }
     
     .evaluation-log h5 {
-        color: #4fc3f7 !important;
+        color: #4fc3f7;
         margin-bottom: 0.5rem;
     }
     
     .evaluation-log p {
-        color: #ffffff !important;
+        color: #ffffff;
         margin: 0.25rem 0;
     }
     
-    /* Code blocks */
-    code {
-        background-color: #1e1e1e !important;
-        color: #4fc3f7 !important;
-        padding: 0.2rem 0.4rem !important;
-        border-radius: 0.25rem !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    pre {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-        padding: 1rem !important;
-        border-radius: 0.5rem !important;
-        overflow-x: auto !important;
-    }
-    
-    /* Let Plotly handle its own styling */
-    
-    /* Spinner */
-    .stSpinner {
-        color: #4fc3f7 !important;
-    }
-    
-    /* Columns */
-    .element-container {
-        color: #ffffff !important;
-    }
-    
-    /* Success/Error/Info messages */
-    .stSuccess {
-        background-color: #1b5e20 !important;
-        color: #ffffff !important;
-        border: 1px solid #4caf50 !important;
-    }
-    
-    .stError {
-        background-color: #5d1a1a !important;
-        color: #ffffff !important;
-        border: 1px solid #f44336 !important;
-    }
-    
-    .stInfo {
-        background-color: #1e3a5f !important;
-        color: #ffffff !important;
-        border: 1px solid #2196f3 !important;
-    }
-    
-    .stWarning {
-        background-color: #5d4e1a !important;
-        color: #ffffff !important;
-        border: 1px solid #ff9800 !important;
-    }
-    
-    /* Details/Summary elements */
-    details {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.25rem !important;
-        padding: 0.5rem !important;
-        margin: 0.5rem 0 !important;
-    }
-    
-    summary {
-        color: #4fc3f7 !important;
-        cursor: pointer !important;
-        font-weight: bold !important;
-    }
-    
-    summary:hover {
-        color: #29b6f6 !important;
-    }
-    
-    /* Additional comprehensive styling */
-    
-    /* Force all text elements to white */
-    * {
-        color: #ffffff !important;
-    }
-    
-    /* Override any remaining light backgrounds */
-    div[data-testid="stSidebar"] {
-        background-color: #262730 !important;
-    }
-    
-    div[data-testid="stSidebar"] * {
-        color: #ffffff !important;
-    }
-    
-    /* Main content wrapper */
-    div[data-testid="stAppViewContainer"] {
-        background-color: #0e1117 !important;
-    }
-    
-    div[data-testid="stHeader"] {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Metric containers */
-    div[data-testid="metric-container"] {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
-    }
-    
-    div[data-testid="metric-container"] * {
-        color: #ffffff !important;
-    }
-    
-    /* Column containers */
-    div[data-testid="column"] {
-        background-color: transparent !important;
-    }
-    
-    /* Plotly chart containers */
-    div[data-testid="stPlotlyChart"] {
-        background-color: #0e1117 !important;
-    }
-    
-    /* DataFrame/table styling */
-    div[data-testid="stDataFrame"] {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    div[data-testid="stDataFrame"] * {
-        color: #ffffff !important;
-        background-color: #1e1e1e !important;
-    }
-    
-    /* Table headers */
-    th {
-        background-color: #262730 !important;
-        color: #4fc3f7 !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    /* Table cells */
-    td {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    /* Form elements */
-    .stForm {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
-    }
-    
-    .stForm * {
-        color: #ffffff !important;
-    }
-    
-    /* Radio buttons */
-    .stRadio {
-        color: #ffffff !important;
-    }
-    
-    .stRadio > div {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        padding: 0.5rem !important;
-    }
-    
-    /* Multiselect */
-    .stMultiSelect {
-        color: #ffffff !important;
-    }
-    
-    .stMultiSelect > div > div {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Slider */
-    .stSlider {
-        color: #ffffff !important;
-    }
-    
-    .stSlider > div > div > div {
-        background-color: #4fc3f7 !important;
-    }
-    
-    /* Number input */
-    .stNumberInput > div > div > input {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    /* Date input */
-    .stDateInput > div > div > input {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    /* Time input */
-    .stTimeInput > div > div > input {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-        border: 1px solid #404040 !important;
-    }
-    
-    /* File uploader */
-    .stFileUploader {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        color: #ffffff !important;
-    }
-    
-    .stFileUploader * {
-        color: #ffffff !important;
-    }
-    
-    /* Progress bar */
-    .stProgress > div > div {
-        background-color: #4fc3f7 !important;
-    }
-    
-    /* Balloons and other animations */
-    .stBalloons {
-        color: #4fc3f7 !important;
-    }
-    
-    /* JSON display */
-    .stJson {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        color: #ffffff !important;
-    }
-    
-    /* Caption text */
-    .caption {
-        color: #b0b0b0 !important;
-    }
-    
-    /* Subheader */
-    .stSubheader {
-        color: #ffffff !important;
-    }
-    
-    /* Write content */
-    .stWrite {
-        color: #ffffff !important;
-    }
-    
-    /* Container backgrounds */
-    .element-container {
-        background-color: transparent !important;
-    }
-    
-    /* Block container */
-    .block-container {
-        background-color: #0e1117 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Ensure all divs have proper text color */
-    div {
-        color: #ffffff !important;
-    }
-    
-    /* Ensure all spans have proper text color */
-    span {
-        color: #ffffff !important;
-    }
-    
-    /* Ensure all paragraphs have proper text color */
-    p {
-        color: #ffffff !important;
-    }
-    
-    /* Labels */
-    label {
-        color: #ffffff !important;
-    }
-    
-    /* Links */
-    a {
-        color: #4fc3f7 !important;
-    }
-    
-    a:hover {
-        color: #29b6f6 !important;
-    }
-    
-    /* Tooltip */
-    .stTooltipIcon {
-        color: #4fc3f7 !important;
-    }
-    
-    /* Popover */
-    .stPopover {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Chat elements (if any) */
-    .stChatMessage {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Plotly specific overrides */
-    .plotly {
-        background-color: #0e1117 !important;
-    }
-    
-    .plotly .bg {
-        fill: #0e1117 !important;
-    }
-    
-    /* Override any matplotlib/seaborn plots */
-    .matplotlib {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Status indicators */
-    .stStatus {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Ensure sidebar elements are properly styled */
-    .css-1d391kg * {
-        color: #ffffff !important;
-    }
-    
-    /* Footer */
-    .stApp > footer {
-        background-color: #0e1117 !important;
-        color: #ffffff !important;
-    }
-    
-    /* Any remaining white backgrounds */
-    [style*="background-color: white"], 
-    [style*="background-color: #ffffff"],
-    [style*="background-color: #fff"] {
-        background-color: #1e1e1e !important;
-    }
-    
-    /* Any remaining black text */
-    [style*="color: black"],
-    [style*="color: #000000"],
-    [style*="color: #000"] {
-        color: #ffffff !important;
-    }
-    
-    /* AGGRESSIVE SIDEBAR FIXES */
-    .css-1d391kg, 
-    .css-1aumxhk,
-    .css-17eq0hr,
-    .css-1lcbmhc,
-    .css-1y4p8pa,
-    .css-12oz5g7,
-    .css-1v3fvcr {
-        background-color: #262730 !important;
-    }
-    
-    /* Sidebar content wrapper */
-    section[data-testid="stSidebar"] {
-        background-color: #262730 !important;
-    }
-    
-    section[data-testid="stSidebar"] > div {
-        background-color: #262730 !important;
-    }
-    
-    section[data-testid="stSidebar"] * {
-        background-color: transparent !important;
-        color: #ffffff !important;
-    }
-    
-    /* AGGRESSIVE PLOT BACKGROUND FIXES */
-    .js-plotly-plot,
-    .plotly-graph-div,
-    .svg-container,
-    .plot-container {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Plotly modebar */
-    .modebar {
-        background-color: #1e1e1e !important;
-    }
-    
-    .modebar-btn {
-        background-color: #1e1e1e !important;
-        color: #ffffff !important;
-    }
-    
-    /* Force plotly chart backgrounds */
-    .js-plotly-plot .plotly .main-svg {
-        background-color: #0e1117 !important;
-    }
-    
-    /* AGGRESSIVE MAIN CONTENT FIXES */
-    .main,
-    .main > div,
-    .block-container,
-    .element-container,
-    .stApp > div,
-    .css-18e3th9,
-    .css-1d391kg,
-    .css-12oz5g7 {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Header area */
-    header[data-testid="stHeader"] {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Toolbar */
-    .css-14xtw13 {
-        background-color: #0e1117 !important;
-    }
-    
-    /* AGGRESSIVE TAB FIXES */
-    .stTabs,
-    .stTabs > div,
-    .stTabs [role="tablist"],
-    .stTabs [role="tab"],
-    .stTabs [role="tabpanel"] {
-        background-color: #0e1117 !important;
-    }
-    
-    /* AGGRESSIVE METRIC FIXES */
-    [data-testid="metric-container"],
-    [data-testid="metric-container"] > div,
-    .metric-container {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* FORCE ALL BACKGROUNDS TO DARK */
-    body,
-    html,
-    #root,
-    .stApp,
-    .main,
-    .block-container,
-    .element-container,
-    .css-1d391kg,
-    .css-18e3th9,
-    .css-12oz5g7,
-    .css-1aumxhk,
-    .css-17eq0hr,
-    .css-1lcbmhc,
-    .css-1y4p8pa,
-    .css-1v3fvcr,
-    .css-14xtw13 {
-        background: #0e1117 !important;
-        background-color: #0e1117 !important;
-    }
-    
-    /* FORCE SIDEBAR BACKGROUNDS */
-    section[data-testid="stSidebar"],
-    section[data-testid="stSidebar"] > div,
-    section[data-testid="stSidebar"] * {
-        background: #262730 !important;
-        background-color: #262730 !important;
-    }
-    
-    /* Override any SVG backgrounds in plots */
-    svg {
-        background-color: transparent !important;
-    }
-    
-    /* Plotly paper background */
-    .bg {
-        fill: #0e1117 !important;
-    }
-    
-    /* Chart paper */
-    .paper {
-        fill: #0e1117 !important;
-    }
-    
-    /* FORCE ALL TEXT TO WHITE */
-    body *,
-    .stApp *,
-    .main *,
-    section[data-testid="stSidebar"] * {
-        color: #ffffff !important;
-    }
-    
-    /* Exception for buttons with dark backgrounds */
-    .stButton > button * {
-        color: #000000 !important;
-    }
-    
-    /* PLOTLY SPECIFIC OVERRIDES */
-    .plotly .modebar {
-        background: rgba(30, 30, 30, 0.8) !important;
-    }
-    
-    .plotly .modebar-btn path {
-        fill: #ffffff !important;
-    }
-    
-    /* Override any remaining white/light elements */
-    [style*="background: white"],
-    [style*="background: #fff"],
-    [style*="background: #ffffff"],
-    [style*="background-color: white"],
-    [style*="background-color: #fff"],
-    [style*="background-color: #ffffff"] {
-        background: #1e1e1e !important;
-        background-color: #1e1e1e !important;
-    }
-    
-    /* Streamlit specific overrides */
-    .css-1outpf7,
-    .css-16huue1,
-    .css-1inwz65,
-    .css-12w0qpk {
-        background-color: #0e1117 !important;
-    }
-    
-    /* Column divs */
-    .css-ocqkz7,
-    .css-1r6slb0 {
-        background-color: transparent !important;
-    }
-    
-    /* Widget containers */
-    .css-1cpxqw2,
-    .css-16idsys {
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-    }
-    
-    /* Disable any highlighting on the button container */
-    div[data-testid="stButton"] {
-        user-select: none !important;
-        -webkit-user-select: none !important;
-        -moz-user-select: none !important;
-        -ms-user-select: none !important;
-    }
-    
-    /* TAB STYLING TO MATCH BUTTON */
-    /* Tab container */
-    div[data-testid="stTabs"] {
-        margin-top: 1rem;
-    }
-    
-    /* Tab list container */
+    /* Tab styling */
     div[data-testid="stTabs"] [role="tablist"] {
-        background-color: #1e1e1e !important;
-        border-radius: 12px !important;
-        padding: 4px !important;
-        gap: 4px !important;
-        border: 1px solid #404040 !important;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
+        background-color: #2d2d2d;
+        border-radius: 8px;
+        padding: 4px;
     }
     
-    /* Individual tab buttons */
     div[data-testid="stTabs"] button[role="tab"] {
-        background: linear-gradient(135deg, #404040 0%, #505050 100%) !important;
-        border: none !important;
-        border-radius: 8px !important;
-        padding: 8px 16px !important;
-        color: #ffffff !important;
-        font-size: 14px !important;
-        font-weight: 600 !important;
-        cursor: pointer !important;
-        transition: all 0.3s ease !important;
-        margin: 0 !important;
-        outline: none !important;
-        user-select: none !important;
-        -webkit-user-select: none !important;
-        -moz-user-select: none !important;
-        -ms-user-select: none !important;
-        text-shadow: none !important;
-        min-height: 36px !important;
-        flex: 1 !important;
-        text-align: center !important;
+        background: #404040;
+        color: #ffffff;
+        border: none;
+        border-radius: 4px;
+        padding: 8px 16px;
+        margin: 0 2px;
     }
     
-    /* Hover state for inactive tabs */
-    div[data-testid="stTabs"] button[role="tab"]:hover:not([aria-selected="true"]) {
-        background: linear-gradient(135deg, #505050 0%, #606060 100%) !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 2px 8px rgba(102, 126, 234, 0.2) !important;
-    }
-    
-    /* Active/selected tab */
     div[data-testid="stTabs"] button[role="tab"][aria-selected="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
-        color: #ffffff !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4) !important;
-        z-index: 2 !important;
-        position: relative !important;
+        background: #667eea;
+        color: #ffffff;
     }
     
-    /* Active tab hover */
-    div[data-testid="stTabs"] button[role="tab"][aria-selected="true"]:hover {
-        background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
-        box-shadow: 0 6px 16px rgba(102, 126, 234, 0.5) !important;
-    }
-    
-    /* Tab focus state */
-    div[data-testid="stTabs"] button[role="tab"]:focus {
-        outline: none !important;
-        box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.3) !important;
-    }
-    
-    /* Tab content area */
-    div[data-testid="stTabs"] [role="tabpanel"] {
-        background-color: transparent !important;
-        padding: 1rem 0 !important;
-        border: none !important;
-    }
-    
-    /* Remove default tab styling */
-    div[data-testid="stTabs"] button[role="tab"] * {
-        color: inherit !important;
-        user-select: none !important;
-        pointer-events: none !important;
-    }
-    
-    /* Ensure tab text is not selectable */
-    div[data-testid="stTabs"] button[role="tab"]::selection,
-    div[data-testid="stTabs"] button[role="tab"] *::selection {
-        background: transparent !important;
-    }
-    
-    div[data-testid="stTabs"] button[role="tab"]::-moz-selection,
-    div[data-testid="stTabs"] button[role="tab"] *::-moz-selection {
-        background: transparent !important;
-    }
-    
-    /* CONSTITUTION DIFF STYLING */
-    .constitution-diff-container {
-        display: flex;
-        gap: 1rem;
-        margin: 1rem 0;
-    }
-    
+    /* Constitution diff styling */
     .constitution-panel {
-        flex: 1;
-        background-color: #1e1e1e !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
-        font-family: 'Courier New', monospace !important;
-        font-size: 14px !important;
-        line-height: 1.4 !important;
-        overflow-y: auto !important;
-        max-height: 500px !important;
-        position: relative !important;
+        background-color: #2d2d2d;
+        border: 1px solid #404040;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: 'Courier New', monospace;
+        font-size: 14px;
+        line-height: 1.4;
+        overflow-y: auto;
+        max-height: 500px;
+        color: #ffffff;
     }
     
     .constitution-panel h4 {
-        color: #4fc3f7 !important;
-        margin-bottom: 1rem !important;
-        font-size: 16px !important;
-        font-weight: 600 !important;
-        border-bottom: 1px solid #404040 !important;
-        padding-bottom: 0.5rem !important;
-    }
-    
-    .constitution-panel .version-info {
-        color: #b0b0b0 !important;
-        font-size: 12px !important;
-        margin-bottom: 1rem !important;
-        font-style: italic !important;
-    }
-    
-    .diff-line {
-        padding: 2px 4px !important;
-        margin: 1px 0 !important;
-        border-radius: 2px !important;
-        white-space: pre-wrap !important;
-        word-break: break-word !important;
-    }
-    
-    .diff-unchanged {
-        color: #ffffff !important;
-        background-color: transparent !important;
+        color: #4fc3f7;
+        margin-bottom: 1rem;
+        font-size: 16px;
+        font-weight: 600;
+        border-bottom: 1px solid #404040;
+        padding-bottom: 0.5rem;
     }
     
     .diff-added {
-        color: #ffffff !important;
-        background-color: rgba(40, 167, 69, 0.3) !important;
-        border-left: 3px solid #28a745 !important;
-        padding-left: 8px !important;
+        color: #ffffff;
+        background-color: rgba(40, 167, 69, 0.3);
+        border-left: 3px solid #28a745;
+        padding-left: 8px;
     }
     
     .diff-removed {
-        color: #ffffff !important;
-        background-color: rgba(220, 53, 69, 0.3) !important;
-        border-left: 3px solid #dc3545 !important;
-        padding-left: 8px !important;
+        color: #ffffff;
+        background-color: rgba(220, 53, 69, 0.3);
+        border-left: 3px solid #dc3545;
+        padding-left: 8px;
     }
     
     .diff-controls {
-        background-color: #2d2d2d !important;
-        border: 1px solid #404040 !important;
-        border-radius: 0.5rem !important;
-        padding: 1rem !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    .diff-controls h4 {
-        color: #4fc3f7 !important;
-        margin-bottom: 1rem !important;
-    }
-    
-    .slider-container {
-        display: flex !important;
-        align-items: center !important;
-        gap: 1rem !important;
-        margin: 0.5rem 0 !important;
-    }
-    
-    .slider-label {
-        color: #ffffff !important;
-        font-weight: 600 !important;
-        min-width: 100px !important;
+        background-color: #2d2d2d;
+        border: 1px solid #404040;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        color: #ffffff;
     }
     
     .version-indicator {
-        background-color: #404040 !important;
-        border: 1px solid #505050 !important;
-        border-radius: 4px !important;
-        padding: 0.25rem 0.5rem !important;
-        color: #ffffff !important;
-        font-family: monospace !important;
-        font-size: 12px !important;
+        background-color: #404040;
+        border: 1px solid #505050;
+        border-radius: 4px;
+        padding: 0.25rem 0.5rem;
+        color: #ffffff;
+        font-family: monospace;
+        font-size: 12px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -864,8 +182,8 @@ st.markdown("""
 def get_contest_engine():
     return ContestEngine.get_instance()
 
-def reset_and_start_game():
-    """Reset everything and start a fresh game."""
+def initialize_contest():
+    """Initialize contest with fresh players."""
     engine = get_contest_engine()
     
     try:
@@ -886,7 +204,6 @@ def reset_and_start_game():
         # Reset principle evaluator history
         engine.principle_evaluator.evaluation_history = []
         
-        # Create fresh AI players
         alice = Phi4Developer("Alice")
         bob = Phi4Developer("Bob")
         
@@ -894,10 +211,37 @@ def reset_and_start_game():
         engine.register_developer(alice)
         engine.register_developer(bob)
         
-        # Start the contest
-        engine.run_full_contest()
+        # Start the contest (but don't run it)
+        engine.start_contest()
         
-        return True, "Game completed successfully!"
+        return True, "Contest initialized! Ready to step through problems."
+    except Exception as e:
+        return False, f"Error: {str(e)}"
+
+def step_contest():
+    """Run one contest round."""
+    engine = get_contest_engine()
+    
+    try:
+        # Check if contest is active
+        if not engine.state.is_active:
+            return False, "Contest not started. Click Step to initialize first."
+        
+        # Check if we have more problems
+        if engine.state.current_problem_index >= len(engine.problems):
+            return False, "Contest completed! All problems finished."
+        
+        # Run one round
+        engine.run_contest_round()
+        
+        # Check if that was the last problem
+        if engine.state.current_problem_index >= len(engine.problems):
+            return True, "Contest completed! Final results available."
+        else:
+            current_prob = engine.state.current_problem_index + 1
+            total_probs = len(engine.problems)
+            return True, f"Round completed! Problem {current_prob-1} finished. Ready for problem {current_prob}/{total_probs}."
+        
     except Exception as e:
         return False, f"Error: {str(e)}"
 
@@ -914,95 +258,127 @@ def display_leaderboard():
         # Filter out PrincipleEvaluator to show only players
         player_leaderboard = [entry for entry in leaderboard if entry['name'] != 'PrincipleEvaluator']
         
-        if player_leaderboard and transactions:
-            # Create balance history for line plot
-            df_transactions = pd.DataFrame(transactions)
-            df_transactions['timestamp'] = pd.to_datetime(df_transactions['timestamp'])
-            
-            # Filter for players only
-            player_transactions = df_transactions[
-                df_transactions['actor'].isin([p['name'] for p in player_leaderboard])
-            ].copy()
-            
-            if not player_transactions.empty:
-                # Calculate running balance for each player per round
-                balance_history = []
-                for player in [p['name'] for p in player_leaderboard]:
-                    player_txns = player_transactions[player_transactions['actor'] == player].copy()
-                    player_txns = player_txns.sort_values('timestamp')
-                    
-                    # Extract problem/round number from reason field
-                    player_txns['round'] = player_txns['reason'].str.extract(r'Problem (\d+)').fillna('0').astype(int)
-                    
-                    # Group by round and sum deltas for each round
-                    round_balances = player_txns.groupby('round')['delta'].sum().cumsum()
-                    
-                    for round_num, balance in round_balances.items():
-                        if round_num > 0:  # Skip initial registration (round 0)
-                            balance_history.append({
-                                'round': f"Problem {round_num}",
-                                'round_num': round_num,
-                                'player': player,
-                                'balance': balance
-                            })
-                
-                if balance_history:
-                    df_history = pd.DataFrame(balance_history)
-                    
-                    # Create line plot by round
-                    fig = px.line(
-                        df_history,
-                        x='round_num',
-                        y='balance',
-                        color='player',
-                        title="💰 Player Balance Per Round",
-                        markers=True
-                    )
-                    fig.update_layout(
-                        xaxis_title="Problem Number",
-                        yaxis_title="Balance ($)",
-                        height=400,
-                        hovermode='x unified'
-                    )
-                    # Update x-axis to show problem numbers
-                    fig.update_xaxes(tickmode='linear', tick0=1, dtick=1)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    # Fallback to current balances as bar chart
-                    df = pd.DataFrame(player_leaderboard)
-                    fig = px.bar(df, x="name", y="balance", title="💰 Current Player Balances")
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                # No player transactions yet, show current balances
-                df = pd.DataFrame(player_leaderboard)
-                fig = px.bar(df, x="name", y="balance", title="💰 Current Player Balances")
-                st.plotly_chart(fig, use_container_width=True)
-        else:
-            # No transactions yet, show current balances
-            if player_leaderboard:
-                df = pd.DataFrame(player_leaderboard)
-                fig = px.bar(df, x="name", y="balance", title="💰 Current Player Balances")
-                st.plotly_chart(fig, use_container_width=True)
-        
-        # Display as table
         if player_leaderboard:
-            st.subheader("📊 Player Leaderboard")
+            # Always create balance history - starting with round 0 at $0 for all players
+            balance_history = []
+            
+            # Add starting point for all players at round 0
+            for player in [p['name'] for p in player_leaderboard]:
+                balance_history.append({
+                    'round': 0,
+                    'player': player,
+                    'balance': 0
+                })
+            
+            if transactions:
+                # Build from transaction history - only problem-related transactions
+                df_transactions = pd.DataFrame(transactions)
+                df_transactions['timestamp'] = pd.to_datetime(df_transactions['timestamp'])
+                
+                for player in [p['name'] for p in player_leaderboard]:
+                    player_txns = df_transactions[df_transactions['actor'] == player].copy()
+                    
+                    if not player_txns.empty:
+                        player_txns = player_txns.sort_values('timestamp')
+                        
+                        running_balance = 0
+                        for idx, (_, txn) in enumerate(player_txns.iterrows()):
+                            reason = str(txn['reason'])
+                            
+                            # Only process transactions related to actual problems/submissions
+                            if 'Problem' in reason or 'Submission' in reason or 'evaluation' in reason.lower():
+                                running_balance += txn['delta']
+                                
+                                # Better round extraction logic
+                                round_num = 0  # Default
+                                
+                                # Try multiple patterns to extract round number
+                                if 'Problem' in reason:
+                                    import re
+                                    # Look for "Problem X" patterns
+                                    match = re.search(r'Problem (\d+)', reason)
+                                    if match:
+                                        round_num = int(match.group(1))
+                                    else:
+                                        # Fallback: use transaction sequence
+                                        round_num = idx + 1
+                                elif 'Submission' in reason:
+                                    # Extract from submission patterns
+                                    import re
+                                    match = re.search(r'(\d+)', reason)
+                                    if match:
+                                        round_num = int(match.group(1))
+                                    else:
+                                        round_num = idx + 1
+                                else:
+                                    # Use transaction sequence as fallback for evaluation transactions
+                                    round_num = idx + 1
+                                
+                                # Only add if this is a valid problem round (> 0)
+                                if round_num > 0:
+                                    balance_history.append({
+                                        'round': round_num,
+                                        'player': player,
+                                        'balance': running_balance
+                                    })
+            
+            # Create the line plot
+            df_history = pd.DataFrame(balance_history)
+            
+            fig_line = px.line(
+                df_history,
+                x='round',
+                y='balance',
+                color='player',
+                title="💰 Player Balance Over Rounds",
+                markers=True,
+                color_discrete_map={'Alice': '#4fc3f7', 'Bob': '#ff9800'}
+            )
+            
+            fig_line.update_layout(
+                plot_bgcolor='#1e1e1e',
+                paper_bgcolor='#1e1e1e',
+                font=dict(color='white'),
+                title_font=dict(color='white', size=16),
+                xaxis=dict(
+                    title="Round Number",
+                    title_font=dict(color='white'),
+                    tickfont=dict(color='white'),
+                    gridcolor='#404040',
+                    linecolor='white'
+                ),
+                yaxis=dict(
+                    title="Balance ($)",
+                    title_font=dict(color='white'),
+                    tickfont=dict(color='white'),
+                    gridcolor='#404040',
+                    linecolor='white'
+                ),
+                height=400,
+                hovermode='x unified',
+                legend=dict(
+                    font=dict(color='white'),
+                    bgcolor='rgba(30,30,30,0.8)',
+                    bordercolor='white'
+                ),
+                margin=dict(l=50, r=50, t=50, b=50)
+            )
+            
+            # Update traces for better visibility
+            fig_line.update_traces(
+                line=dict(width=4),
+                marker=dict(size=10, line=dict(color='white', width=2))
+            )
+            
+            st.plotly_chart(fig_line, use_container_width=True)
+            
+            # Show current balances table
+            st.subheader("📊 Current Balances")
+            col1, col2 = st.columns(2)
             for i, entry in enumerate(player_leaderboard):
-                col1, col2, col3 = st.columns([1, 3, 2])
-                with col1:
-                    if i == 0:
-                        st.markdown("🥇")
-                    elif i == 1:
-                        st.markdown("🥈")
-                    elif i == 2:
-                        st.markdown("🥉")
-                    else:
-                        st.markdown(f"{i+1}.")
-                with col2:
-                    st.markdown(f"**{entry['name']}**")
-                with col3:
+                with col1 if i % 2 == 0 else col2:
                     color = "green" if entry['balance'] >= 0 else "red"
-                    st.markdown(f"<span style='color: {color}'>${entry['balance']:,}</span>", 
+                    st.markdown(f"**{entry['name']}**: <span style='color: {color}'>${entry['balance']:,}</span>", 
                               unsafe_allow_html=True)
         else:
             st.info("No players registered yet")
@@ -1189,13 +565,21 @@ def display_constitution():
             col1, col2, col3 = st.columns([1, 2, 1])
             
             with col2:
-                comparison_start = st.slider(
-                    "Compare versions:",
-                    min_value=1,
-                    max_value=max_version - 1,
-                    value=max_version - 1,
-                    help=f"Comparing version {max_version - 1} → {max_version}"
-                )
+                # Ensure we have a valid range for the slider
+                slider_max = max(1, max_version - 1)
+                slider_min = min(1, slider_max - 1) if slider_max > 1 else 1
+                
+                if slider_max > slider_min:
+                    comparison_start = st.slider(
+                        "Compare versions:",
+                        min_value=slider_min,
+                        max_value=slider_max,
+                        value=slider_max,
+                        help=f"Comparing version {slider_max} → {max_version}"
+                    )
+                else:
+                    # Fallback for edge case
+                    comparison_start = 1
             
             # Get the two versions to compare
             left_version = versions[max_version - comparison_start]  # Earlier version
@@ -1330,18 +714,341 @@ def display_bank_transactions():
     else:
         st.info("No transactions yet")
 
+def display_player_personalities():
+    """Display loaded player personalities."""
+    st.subheader("🎭 Player Personalities")
+    
+    # Load and display personality files
+    player_files = [f for f in os.listdir("players") if f.endswith('.yaml')]
+    
+    if not player_files:
+        st.warning("No player personality files found in 'players' directory.")
+        return
+    
+    for player_file in sorted(player_files):
+        player_name = player_file[:-5].title()  # Remove .yaml and capitalize
+        
+        try:
+            with open(f"players/{player_file}", 'r') as f:
+                personality = yaml.safe_load(f)
+            
+            # Extract name from filename if not in YAML
+            display_name = player_name
+            
+            with st.expander(f"🎯 {display_name} - Character Profile"):
+                # Show the complete prompt
+                if personality.get('prompt'):
+                    st.markdown("**Complete Character Profile & Instructions:**")
+                    st.markdown(personality['prompt'])
+                else:
+                    st.warning(f"No prompt found for {display_name}")
+        
+        except Exception as e:
+            st.error(f"Error loading personality for {player_name}: {e}")
+
+def display_player_history():
+    """Display detailed history for a selected player."""
+    engine = get_contest_engine()
+    leaderboard = engine.bank.query_leaderboard()
+    
+    # First show player personalities
+    display_player_personalities()
+    
+    st.markdown("---")
+    st.subheader("📊 Individual Player History")
+    
+    # Get list of players (excluding PrincipleEvaluator)
+    players = [entry['name'] for entry in leaderboard if entry['name'] != 'PrincipleEvaluator']
+    
+    if not players:
+        st.info("No players registered yet. Initialize the contest first!")
+        return
+    
+    # Player selection dropdown
+    selected_player = st.selectbox(
+        "🎯 Select Player",
+        options=players,
+        index=0,
+        help="Choose a player to view their complete history"
+    )
+    
+    if selected_player:
+        st.subheader(f"📊 {selected_player}'s Complete History")
+        
+        # Get the developer object
+        if selected_player not in engine.developers:
+            st.error(f"Developer {selected_player} not found in engine.developers")
+            return
+        
+        developer = engine.developers[selected_player]
+        
+        # Debug information
+        st.write(f"🔍 **Debug Info for {selected_player}:**")
+        st.write(f"  - Developer object found: {developer is not None}")
+        st.write(f"  - Has submission_history: {hasattr(developer, 'submission_history')}")
+        if hasattr(developer, 'submission_history'):
+            st.write(f"  - Submission history length: {len(developer.submission_history)}")
+        st.write(f"  - Has feedback_history: {hasattr(developer, 'feedback_history')}")
+        if hasattr(developer, 'feedback_history'):
+            st.write(f"  - Feedback history length: {len(developer.feedback_history)}")
+        st.write(f"  - Total problems in engine.submissions: {len(engine.submissions)}")
+        st.write(f"  - Problems with submissions: {list(engine.submissions.keys())}")
+        for prob_id, subs in engine.submissions.items():
+            if selected_player in subs:
+                st.write(f"    - {prob_id}: Has submission ({len(subs[selected_player])} chars)")
+        
+        # Collect all player-related events
+        events = []
+        
+        # 1. Get transaction history for this player
+        transactions = engine.bank.query_transaction_history()
+        player_transactions = [txn for txn in transactions if txn['actor'] == selected_player]
+        
+        for txn in player_transactions:
+            events.append({
+                'timestamp': pd.to_datetime(txn['timestamp']),
+                'type': 'Transaction',
+                'description': f"${txn['delta']:+} - {txn['reason']}",
+                'details': {
+                    'amount': txn['delta'],
+                    'reason': txn['reason'],
+                    'balance_after': None  # We'll calculate this
+                }
+            })
+        
+        # 2. Get submission history from the developer object (shows full responses)
+        if hasattr(developer, 'submission_history'):
+            for submission in developer.submission_history:
+                submission_timestamp = submission.get('timestamp')
+                if not submission_timestamp:
+                    submission_timestamp = datetime.now().isoformat()
+                
+                # Convert string timestamp to datetime if needed
+                if isinstance(submission_timestamp, str):
+                    submission_timestamp = pd.to_datetime(submission_timestamp)
+                
+                events.append({
+                    'timestamp': submission_timestamp,
+                    'type': 'Submission',
+                    'description': f"Submitted solution for {submission.get('problem_id', 'Unknown Problem')}",
+                    'details': {
+                        'problem_id': submission.get('problem_id'),
+                        'full_response': submission.get('full_response'),
+                        'extracted_code': submission.get('extracted_code'),
+                        'submission_time': submission_timestamp
+                    }
+                })
+
+        # 3. Get feedback history from the developer object
+        if hasattr(developer, 'feedback_history'):
+            for feedback in developer.feedback_history:
+                feedback_timestamp = feedback.get('timestamp')
+                if not feedback_timestamp:
+                    # If no timestamp in feedback, try to infer from submission time or use current time
+                    feedback_timestamp = datetime.now().isoformat()
+                
+                # Add the feedback event
+                events.append({
+                    'timestamp': pd.to_datetime(feedback_timestamp),
+                    'type': 'Feedback',
+                    'description': f"Received feedback for {feedback.get('problem_id', 'Unknown Problem')}",
+                    'details': {
+                        'problem_id': feedback.get('problem_id'),
+                        'reward': feedback.get('reward'),
+                        'bank_balance': feedback.get('bank_balance'),
+                        'result': feedback.get('result'),
+                        'constitution': feedback.get('constitution'),
+                        'reasoning_transcript': feedback.get('reasoning_transcript'),
+                        'full_feedback': feedback
+                    }
+                })
+                
+        # 4. Get any additional submissions from engine.submissions that might not have feedback yet
+        for problem_id, problem_submissions in engine.submissions.items():
+            if selected_player in problem_submissions:
+                # Check if we already have this submission from submission_history
+                has_submission_record = any(
+                    submission.get('problem_id') == problem_id 
+                    for submission in getattr(developer, 'submission_history', [])
+                )
+                
+                if not has_submission_record:
+                    # This is a submission without proper history record yet
+                    submission_code = problem_submissions[selected_player]
+                    submission_time = datetime.now()  # Fallback timestamp
+                    
+                    events.append({
+                        'timestamp': submission_time,
+                        'type': 'Submission',
+                        'description': f"Submitted solution for {problem_id} (legacy record)",
+                        'details': {
+                            'problem_id': problem_id,
+                            'full_response': submission_code,  # May just be extracted code
+                            'extracted_code': submission_code,
+                            'submission_time': submission_time
+                        }
+                    })
+        
+        # Sort events chronologically
+        events.sort(key=lambda x: x['timestamp'])
+        
+        if not events:
+            st.info(f"No history found for {selected_player}. They may not have participated in any rounds yet.")
+            return
+        
+        # Display events in chronological order
+        st.markdown(f"**Total Events:** {len(events)}")
+        
+        # Calculate running balance for transactions
+        running_balance = 0
+        for event in events:
+            if event['type'] == 'Transaction':
+                running_balance += event['details']['amount']
+                event['details']['balance_after'] = running_balance
+        
+        # Display timeline
+        for i, event in enumerate(events):
+            # Create expandable sections for each event
+            with st.expander(
+                f"**{event['timestamp'].strftime('%Y-%m-%d %H:%M:%S')}** - {event['type']}: {event['description']}",
+                expanded=(i < 3)  # Expand first 3 events by default
+            ):
+                col1, col2 = st.columns([1, 3])
+                
+                with col1:
+                    st.markdown(f"**Type:** {event['type']}")
+                    st.markdown(f"**Time:** {event['timestamp'].strftime('%H:%M:%S')}")
+                
+                with col2:
+                    if event['type'] == 'Transaction':
+                        details = event['details']
+                        color = "green" if details['amount'] >= 0 else "red"
+                        st.markdown(f"**Amount:** <span style='color: {color}'>${details['amount']:+}</span>", unsafe_allow_html=True)
+                        st.markdown(f"**Reason:** {details['reason']}")
+                        st.markdown(f"**Balance After:** ${details['balance_after']:,}")
+                    
+                    elif event['type'] == 'Submission':
+                        details = event['details']
+                        st.markdown(f"**Problem:** {details['problem_id']}")
+                        
+                        # Show the full player response
+                        if details['full_response']:
+                            st.markdown("**Player's Complete Response:**")
+                            st.text(details['full_response'])
+                    
+                    elif event['type'] == 'Feedback':
+                        details = event['details']
+                        st.markdown(f"**Problem:** {details['problem_id']}")
+                        
+                        # Show Principle Evaluator's reasoning transcript
+                        reasoning_transcript = details['reasoning_transcript']
+                        if reasoning_transcript and reasoning_transcript != 'No reasoning available':
+                            st.markdown("**🧠 Principle Evaluator's Reasoning:**")
+                            st.markdown(reasoning_transcript)
+                        
+                        # Show final reward
+                        if details['reward'] is not None:
+                            color = "green" if details['reward'] >= 0 else "red"
+                            st.markdown(f"**💰 Final Reward: <span style='color: {color}'>${details['reward']:+}</span>**", unsafe_allow_html=True)
+        
+        # Summary statistics
+        st.markdown("---")
+        st.subheader("📈 Summary Statistics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            transaction_count = len([e for e in events if e['type'] == 'Transaction'])
+            st.metric("Transactions", transaction_count)
+        
+        with col2:
+            submission_count = len([e for e in events if e['type'] == 'Submission'])
+            st.metric("Submissions", submission_count)
+        
+        with col3:
+            feedback_count = len([e for e in events if e['type'] == 'Feedback'])
+            st.metric("Feedback Received", feedback_count)
+        
+        with col4:
+            current_balance = running_balance
+            color = "normal" if current_balance >= 0 else "inverse"
+            st.metric("Current Balance", f"${current_balance:,}", delta=None)
+
 def control_panel():
     """Contest control panel."""
     st.sidebar.header("🎮 Contest Controls")
     
-    # Custom styled start game button with onclick handler
-    button_clicked = st.sidebar.button("🎭 Start Game", type="primary", key="start_game_main")
+    # Get contest status to determine button states
+    engine = get_contest_engine()
+    status = engine.get_contest_status()
     
-    # Apply custom styling to the actual Streamlit button
+    # Determine button states based on contest status
+    if not status['is_active']:
+        # Not initialized - show initialize button and disabled step button
+        initialize_clicked = st.sidebar.button("🎭 Initialize Contest", type="primary", key="initialize_contest")
+        st.sidebar.button("▶️ Step (Not Ready)", disabled=True, key="step_disabled")
+        
+        if initialize_clicked:
+            with st.sidebar:
+                with st.spinner("Initializing contest..."):
+                    success, message = initialize_contest()
+            
+            if success:
+                st.sidebar.success("Contest initialized successfully!")
+            else:
+                st.sidebar.error(message)
+    
+    else:
+        # Contest is active - show reset button and step button
+        reset_clicked = st.sidebar.button("🔄 Reset Contest", type="primary", key="reset_contest")
+        
+        if reset_clicked:
+            with st.sidebar:
+                with st.spinner("Resetting contest..."):
+                    success, message = initialize_contest()
+            
+            if success:
+                st.sidebar.success("Contest reset successfully!")
+            else:
+                st.sidebar.error(message)
+        
+        # Determine step button text and action
+        if status['current_problem_index'] >= status['total_problems']:
+            # Contest complete
+            st.sidebar.button("🏁 Contest Complete", disabled=True, key="step_contest_complete")
+        else:
+            # Contest active - show step button
+            current_prob = status['current_problem_index'] + 1
+            total_probs = status['total_problems']
+            step_button_text = f"▶️ Step (Problem {current_prob}/{total_probs})"
+            
+            step_clicked = st.sidebar.button(step_button_text, type="primary", key="step_contest_main")
+            
+            if step_clicked:
+                with st.sidebar:
+                    with st.spinner(f"Running problem {current_prob}..."):
+                        success, message = step_contest()
+                
+                if success:
+                    st.sidebar.success(message)
+                else:
+                    st.sidebar.error(message)
+    
+    # Apply custom styling to all primary buttons
     st.sidebar.markdown("""
     <style>
-    /* Style the actual Streamlit button */
-    div[data-testid="stButton"] button[kind="primary"] {
+    /* Style all primary Streamlit buttons - including during global app processing */
+    div[data-testid="stButton"] button[kind="primary"],
+    div[data-testid="stButton"] button[kind="primary"]:enabled,
+    div[data-testid="stButton"] button[kind="primary"]:disabled,
+    div[data-testid="stButton"] button[kind="primary"][data-clicked="true"],
+    div[data-testid="stButton"] button[kind="primary"]:active,
+    div[data-testid="stButton"] button[kind="primary"]:focus,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"],
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:enabled,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:disabled,
+    body[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"],
+    [data-testid="stApp"][data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"] {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         border: none !important;
         border-radius: 12px !important;
@@ -1371,7 +1078,32 @@ def control_panel():
         font-family: inherit !important;
     }
     
-    div[data-testid="stButton"] button[kind="primary"]:hover {
+    /* Override any Streamlit processing states */
+    div[data-testid="stButton"] button[kind="primary"].stButton > button,
+    div[data-testid="stButton"] button[kind="primary"] > div,
+    div[data-testid="stButton"] button[kind="primary"] span {
+        background: transparent !important;
+        color: white !important;
+    }
+    
+    /* Force override any green processing states and global app processing */
+    div[data-testid="stButton"] button[kind="primary"][style*="background"],
+    div[data-testid="stButton"] button[kind="primary"][style*="green"],
+    div[data-testid="stButton"] button[kind="primary"].st-emotion-cache-*,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"][style*="background"],
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"][style*="green"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    }
+    
+    /* Override global app processing styles */
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"],
+    body[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+        opacity: 1 !important;
+    }
+    
+    div[data-testid="stButton"] button[kind="primary"]:hover,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:hover {
         transform: translateY(-2px) !important;
         box-shadow: 0 6px 20px rgba(102, 126, 234, 0.4) !important;
         background: linear-gradient(135deg, #764ba2 0%, #667eea 100%) !important;
@@ -1379,16 +1111,21 @@ def control_panel():
         user-select: none !important;
     }
     
-    div[data-testid="stButton"] button[kind="primary"]:active {
+    div[data-testid="stButton"] button[kind="primary"]:active,
+    div[data-testid="stButton"] button[kind="primary"][data-clicked="true"],
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:active {
         transform: translateY(0) !important;
         box-shadow: 0 2px 10px rgba(102, 126, 234, 0.3) !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         outline: none !important;
         user-select: none !important;
     }
     
-    div[data-testid="stButton"] button[kind="primary"]:focus {
+    div[data-testid="stButton"] button[kind="primary"]:focus,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:focus {
         outline: none !important;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
         user-select: none !important;
     }
     
@@ -1396,9 +1133,11 @@ def control_panel():
         outline: none !important;
     }
     
-    div[data-testid="stButton"] button[kind="primary"]:focus-visible {
+    div[data-testid="stButton"] button[kind="primary"]:focus-visible,
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"]:focus-visible {
         outline: none !important;
         box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3) !important;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
     }
     
     /* Remove any text selection on button text */
@@ -1431,18 +1170,14 @@ def control_panel():
         -moz-user-select: none !important;
         -ms-user-select: none !important;
     }
+    
+    /* Override any dynamically generated Streamlit styles */
+    div[data-testid="stButton"] button[kind="primary"][class*="st-"],
+    .stApp[data-test-script-state="running"] div[data-testid="stButton"] button[kind="primary"][class*="st-"] {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+    }
     </style>
     """, unsafe_allow_html=True)
-    
-    if button_clicked:
-        with st.sidebar:
-            with st.spinner("Starting fresh game..."):
-                success, message = reset_and_start_game()
-        
-        if success:
-            st.sidebar.success("Game completed! Check the results below.")
-        else:
-            st.sidebar.error(f"Failed to start game: {message}")
 
 def main():
     """Main Streamlit application."""
@@ -1456,7 +1191,7 @@ def main():
     auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh (5s)", value=True)
     
     # Main dashboard
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "🤖 Principle Evaluator", "📜 Constitution", "💳 Transactions"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Overview", "🤖 Principle Evaluator", "📜 Constitution", "💳 Transactions", "👥 Players"])
     
     with tab1:
         # Contest status
@@ -1480,6 +1215,9 @@ def main():
     
     with tab4:
         display_bank_transactions()
+    
+    with tab5:
+        display_player_history()
     
     # Auto-refresh
     if auto_refresh:

@@ -58,7 +58,7 @@ class ContestEngine:
     def _initialize_shared_model(self):
         """Initialize the shared Phi-4 model."""
         try:
-            from phi4_model import get_phi4_model
+            from backend.phi4_model import get_phi4_model
             phi4_model = get_phi4_model()
             phi4_model.initialize_model()
             self.logger.info(f"Shared Phi-4 model initialized: {phi4_model.get_device_info()}")
@@ -267,23 +267,31 @@ class ContestEngine:
         """Submit a solution for the current problem."""
         current_problem = self.get_current_problem()
         if not current_problem:
+            self.logger.warning(f"No current problem when {developer_name} tried to submit")
             return False
-        
+
         if developer_name not in self.developers:
+            self.logger.warning(f"Developer {developer_name} not registered when trying to submit")
             return False
-        
+
         if current_problem.id not in self.submissions:
             self.submissions[current_problem.id] = {}
-        
+
         self.submissions[current_problem.id][developer_name] = code
         
+        # Debug logging
+        self.logger.info(f"✅ Saved submission from {developer_name} for problem {current_problem.id}")
+        self.logger.info(f"📝 Submission length: {len(code)} characters")
+        self.logger.info(f"🗂️ Total submissions for {current_problem.id}: {len(self.submissions[current_problem.id])}")
+        self.logger.info(f"🗂️ All problem IDs with submissions: {list(self.submissions.keys())}")
+
         self.logger.info(f"Received submission from {developer_name} for problem {current_problem.id}")
         self._emit_event("submission_received", {
             "developer": developer_name,
             "problem_id": current_problem.id,
             "submission_time": datetime.now().isoformat()
         })
-        
+
         return True
     
     def run_contest_round(self):
@@ -301,49 +309,68 @@ class ContestEngine:
             "problem": current_problem.dict()
         })
         
+        # STEP 1: Collect all submissions into a big list with names AND developer response times
+        all_submissions = []
+        
         # Ask each developer to generate a solution
         self.logger.info(f"Requesting solutions from {len(self.developers)} developers...")
         for dev_name, developer in self.developers.items():
             try:
                 self.logger.info(f"Requesting solution from {dev_name}...")
-                solution = developer.query(current_problem)
-                self.submit_solution(dev_name, solution)
-                self.logger.info(f"Received solution from {dev_name}")
+                
+                # Time just this line
+                start_time = time.time()
+                full_response = developer.query(current_problem)
+                response_time = time.time() - start_time
+                
+                # Add to big list for PE evaluation with response timing
+                all_submissions.append({
+                    'name': dev_name,
+                    'full_response': full_response,
+                    'response_time': response_time
+                })
+                
+                self.logger.info(f"Received solution from {dev_name} (took {response_time:.2f}s to respond)")
             except Exception as e:
                 self.logger.error(f"Error getting solution from {dev_name}: {e}")
         
-        # Get submissions for this problem
-        problem_submissions = self.submissions.get(current_problem.id, {})
-        
-        # Evaluate submissions
-        evaluation_result = self.principle_evaluator.evaluate_submissions(
+        # STEP 2-4: PE handles extraction, execution, rewards, and constitution updates
+        evaluation_result = self.principle_evaluator.evaluate_submissions_simple(
             current_problem.tests,
-            problem_submissions,
-            current_problem
+            current_problem,
+            all_submissions  # Pass the big list with response times
         )
         
         # Send feedback to developers
         for dev_name, dev in self.developers.items():
-            if dev_name in problem_submissions:
-                result_data = evaluation_result['results'].get(dev_name, {})
+            if dev_name in evaluation_result.get('results', {}):
+                result_data = evaluation_result['results'][dev_name]
+                
                 feedback = {
+                    "timestamp": datetime.now().isoformat(),
                     "problem_id": current_problem.id,
                     "result": result_data.get('result'),
                     "reward": result_data.get('reward', 0),
                     "bank_balance": self.bank.query_balance(dev_name),
-                    "constitution": self.constitution.query()
+                    "constitution": self.constitution.query(),
+                    "submission_code": result_data.get('extracted_code'),
+                    "full_response": next((s['full_response'] for s in all_submissions if s['name'] == dev_name), ''),
+                    "response_time": result_data.get('response_time'),  # Add developer response time
+                    "reasoning_transcript": result_data.get('reasoning_transcript', 'No reasoning available')
                 }
+                
                 dev.update(feedback)
+        
+        # STEP 3 & 4: PE decides whether to update constitution and extracts new one if needed
+        constitution_updated = self.principle_evaluator.check_and_update_constitution(all_submissions, evaluation_result)
         
         self.logger.info(f"Completed round for problem {current_problem.id}")
         self._emit_event("round_completed", {
             "problem_id": current_problem.id,
             "evaluation": evaluation_result,
+            "constitution_updated": constitution_updated,
             "leaderboard": self.bank.query_leaderboard()
         })
-        
-        # Let Principle Evaluator analyze performance and potentially update constitution
-        self.principle_evaluator.analyze_contest_performance(evaluation_result)
         
         # Move to next problem
         self.state.current_problem_index += 1
@@ -398,4 +425,57 @@ class ContestEngine:
                 lines = f.readlines()
                 return lines[-limit:] if len(lines) > limit else lines
         except FileNotFoundError:
-            return [] 
+            return []
+
+    def _extract_function_code(self, full_response, stub_code):
+        """Extract executable function code from full developer response."""
+        import re
+        
+        # Extract function name from stub code
+        function_name_match = re.search(r'def\s+(\w+)\s*\(', stub_code)
+        function_name = function_name_match.group(1) if function_name_match else 'solve'
+        
+        # First, try to find code in markdown blocks
+        code_block_match = re.search(r'```python\s*(.*?)\s*```', full_response, re.DOTALL)
+        if code_block_match:
+            code_content = code_block_match.group(1).strip()
+            if f"def {function_name}" in code_content:
+                return code_content
+        
+        # Try to find the function definition in the response
+        lines = full_response.split('\n')
+        function_lines = []
+        in_function = False
+        
+        for line in lines:
+            if f"def {function_name}" in line:
+                in_function = True
+                function_lines.append(line)
+            elif in_function:
+                if line.strip() and not line.startswith(' ') and not line.startswith('\t'):
+                    # End of function (new non-indented line that's not empty)
+                    break
+                function_lines.append(line)
+        
+        if function_lines:
+            return '\n'.join(function_lines)
+        
+        # Last resort: look for any Python-like code (lines that look like code)
+        code_lines = []
+        for line in lines:
+            line = line.strip()
+            # Skip commentary lines and empty lines
+            if (line and 
+                not line.endswith(':') and  # Skip commentary headers
+                not line.startswith('#') and  # Skip comments
+                ('=' in line or 'return' in line or 'def ' in line or 'if ' in line or 'for ' in line)):
+                code_lines.append(line)
+        
+        if code_lines:
+            # Wrap the extracted code-like lines in a function
+            return f"""def {function_name}():
+    {chr(10).join('    ' + line for line in code_lines)}"""
+        
+        # Ultimate fallback - empty function
+        return f"""def {function_name}():
+    pass""" 
