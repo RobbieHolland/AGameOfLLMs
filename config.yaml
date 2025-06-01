@@ -1,0 +1,32 @@
+contest:
+  name: "Code-Writing Contest"
+  max_problems: 10
+  time_limit_per_problem: 300  # 5 minutes
+  preparation_time: 1200       # 20 minutes for contestants to prepare
+
+execution:
+  timeout_seconds: 1
+  memory_limit_mb: 256
+  sandbox_enabled: true
+
+scoring:
+  all_tests_pass: 1000
+  compilation_error: -500
+  test_failure: -500
+  latency_penalty_per_second: 5
+  principle_evaluator_reward: 1000
+
+server:
+  backend_host: "0.0.0.0"
+  backend_port: 8000
+  frontend_port: 8501
+
+paths:
+  problems_dir: "./problems"
+  developers_dir: "./developers"
+  submissions_dir: "./developers/submissions"
+  data_nas_path: "/dataNAS/people"
+
+logging:
+  level: "INFO"
+  file: "contest.log" 
